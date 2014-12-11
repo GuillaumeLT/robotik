@@ -6,12 +6,9 @@
 #define kth 100
 #define Cycle 20
 #define Te Cycle*1e-3
-#define a 0.1                      //vitesse de trj désirée
+#define a 0.1
 
-/**
-  trajectoire 1 = droite
-  version du 15/11/12
-*/
+#define LOCAL_MODE
 
 class PrintingTask
 {
@@ -33,7 +30,6 @@ protected:
   ArFunctorC<PrintingTask> myTaskCB;
 };
 
-
 // the constructor (note how it uses chaining to initialize myTaskCB)
 PrintingTask::PrintingTask(ArRobot *robot) :
   myTaskCB(this, &PrintingTask::doTask)
@@ -49,87 +45,93 @@ PrintingTask::PrintingTask(ArRobot *robot) :
 #define square_len 6
 double const x_final [4] = { square_len, square_len, 0, 0 };
 double const y_final [4] = { 0, square_len, square_len, 0 };
-double xd = 5;//x_final[0];
-double yd = 0;//y_final[0];
+double xd = x_final[0];
+double yd = y_final[0];
 
 void PrintingTask::doTask(void)
 {
-  static bool collision_mode = false;
+  static int collision_mode = 0;
   static int square_state = 0;
   static unsigned int collision_iter_stop = 0;
   double t = i++ * Te;
 
-  // get the robot coordinate
-  double x   = myRobot->getX() * 1e-3;
-  static double x0 = x;
-  double y   = myRobot->getY() * 1e-3;
-  static double y0 = y;
+  // infos robot
+  double x = myRobot->getX() * 1e-3;
+  double y = myRobot->getY() * 1e-3;
   double th  = myRobot->getTh() * (pi / 180);
 
-  // get the coordinate of the second point
-  double l = 1;
-  double x1 = x + l * cos(th);
-  double y1 = y + l * sin(th);
+  // second point du robot
+  double l = 0.5;
+  double x1 = x + l*cos(th);
+  double y1 = y + l*sin(th);
 
-  /* // desired */
+  // destination
   double xd = x_final[square_state];
   double yd = y_final[square_state];
 
-  printf("xd:%f, yd:%f, x1:%f, y1:%f\n", xd, yd, x1, y1);
+  // turn
   if (abs(xd - x1) < 0.5 && abs(yd - y1) < 0.5)
   {
-    printf("AUGMENTAGE\n");
     square_state = (square_state + 1) % 4;
   }
 
-  if (!collision_mode)
+  if (collision_mode == 0)
   {
-    if (
-        myRobot->getSonarRange(4) < 500
+    if (myRobot->getSonarRange(3) < 500
+        || myRobot->getSonarRange(4) < 500
         || myRobot->getSonarRange(5) < 500
-       )
+        || myRobot->getSonarRange(6) < 500)
     {
-      collision_mode = true;
-      collision_iter_stop = i + 50;
+      collision_mode = 1;
+      collision_iter_stop = i + 40;
     }
   }
-  if (i == collision_iter_stop)
+  if (collision_iter_stop == i)
   {
-    collision_mode = false;
-    xd = x_final[square_state];
-    yd = x_final[square_state];
+    if (collision_mode == 1)
+      collision_iter_stop = i + 80;
+    if (collision_mode == 2)
+      collision_iter_stop = i + 45;
+    if (collision_mode == 3)
+    {
+      xd = x_final[square_state];
+      yd = x_final[square_state];
+    }
+    collision_mode = (collision_mode + 1) % 4;
   }
 
-  /* // derivate */
-  double xdp = 0;
-  double ydp = 0;
+  // matrice z
+  double zx = 0.3*(xd - x1);
+  double zy = 0.3*(yd - y1);
 
-  double lambda = 0.3;
-  // z matrix
-  double zx = xdp + lambda * (xd - x1);
-  double zy = ydp + lambda * (yd - y1);
-
-  /* //calcul des consignes */
-  // J_1 = [ cos(theta),    sin(theta);
-  //         -sin(theta)/l, cos(theta)/l]
+  // consignes
   double v   = zx * cos(th) + zy * sin(th);
   double w   = -zx * sin(th) / l + zy * cos(th) / l;
 
-  // megamaneuvre
-  if (collision_mode)
+  // maneuvre d'evitement
+  if (collision_mode == 1)
   {
-    v = -0.5;
-    w = -0.8;
+    v = -0.1;
+    w = -1;
+  }
+  if (collision_mode == 2)
+  {
+    v = 1;
+    w = 0;
+  }
+  if (collision_mode == 3)
+  {
+    v = 0;
+    w = 1;
   }
 
-  /* // envoi des consignes */
+  // envoi des consignes
   myRobot->lock();
   myRobot->setRotVel(w * (180 / pi));
   myRobot->setVel(v * 1000);
   myRobot->unlock();
 
-  /* // debogage */
-  /* fprintf(file, "%f, %f, %f, %f, %f, %f %f %f\n", x,y,th,xd,yd,t); */
+  // debug
   /* printf("x:%f y:%f th:%f coli:%d v:%f w:%f stop:%d i:%d zx:%f zy:%d\n", */
   /*        myRobot->getX(), myRobot->getY(), */
   /*        myRobot->getTh(), collision_mode, */
@@ -139,14 +141,6 @@ void PrintingTask::doTask(void)
 
 int main(int argc, char** argv)
 {
-  // the connection
-  /* ArSimpleConnector con(&argc, argv); */
-  /* if(!con.parseArgs()) */
-  /*   { */
-  /*     con.logOptions(); */
-  /*     return 1; */
-  /*   } */
-
   // robot
   ArRobot robot;
 
@@ -169,12 +163,24 @@ int main(int argc, char** argv)
   // add the sonar object to the robot
   robot.addRangeDevice(&sonar);
 
+#ifdef LOCAL_MODE
+  // the connection
+  ArSimpleConnector con(&argc, argv);
+  if(!con.parseArgs())
+    {
+      con.logOptions();
+      return 1;
+    }
+
   // open the connection to the robot; if this fails exit
-  /* if(!con.connectRobot(&robot)) */
-  /*   { */
-  /*     printf("Could not connect to the robot.\n"); */
-  /*     return 2; */
-  /*   } */
+  if(!con.connectRobot(&robot))
+    {
+      printf("Could not connect to the robot.\n");
+      return 2;
+    }
+#endif
+
+#ifndef LOCAL_MODE
   ArTcpConnection con;
   con.setPort("192.168.56.1", 8101);
   if (!con.openSimple())
@@ -190,8 +196,9 @@ int main(int argc, char** argv)
     Aria::shutdown();
     return 1;
   }
-  printf("Connected to the robot. (Press Ctrl-C to exit)\n");
+#endif
 
+  printf("Connected to the robot. (Press Ctrl-C to exit)\n");
 
   // turn on the motors, turn off amigobot sounds
   robot.comInt(ArCommands::ENABLE, 1);
