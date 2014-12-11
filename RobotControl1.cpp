@@ -9,6 +9,7 @@
 #define a 0.1
 
 #define LOCAL_MODE
+/* #define DEBUG */
 
 class PrintingTask
 {
@@ -42,18 +43,18 @@ PrintingTask::PrintingTask(ArRobot *robot) :
   j=0;
 }
 
-#define square_len 6
-double const x_final [4] = { square_len, square_len, 0, 0 };
-double const y_final [4] = { 0, square_len, square_len, 0 };
+#define SQUARE_LEN 6
+double const x_final [4] = { SQUARE_LEN, SQUARE_LEN, 0, 0 };
+double const y_final [4] = { 0, SQUARE_LEN, SQUARE_LEN, 0 };
 double xd = x_final[0];
 double yd = y_final[0];
 
 void PrintingTask::doTask(void)
 {
-  static int collision_mode = 0;
-  static int square_state = 0;
-  static unsigned int collision_iter_stop = 0;
-  double t = i++ * Te;
+  static int collision_mode = 0;                // Etape de l'evitement
+  static unsigned int collision_iter_stop = 0;  // Utilise pour les evitements
+  static int square_state = 0;                  // Point destination du carre
+  i++;
 
   // infos robot
   double x = myRobot->getX() * 1e-3;
@@ -69,7 +70,15 @@ void PrintingTask::doTask(void)
   double xd = x_final[square_state];
   double yd = y_final[square_state];
 
-  // turn
+  // matrice z
+  double zx = 0.3*(xd - x1);
+  double zy = 0.3*(yd - y1);
+
+  // consignes
+  double v = zx * cos(th) + zy * sin(th);
+  double w = -zx * sin(th) / l + zy * cos(th) / l;
+
+  // detection d'obstacle et evitement
   if (abs(xd - x1) < 0.5 && abs(yd - y1) < 0.5)
   {
     square_state = (square_state + 1) % 4;
@@ -100,14 +109,6 @@ void PrintingTask::doTask(void)
     collision_mode = (collision_mode + 1) % 4;
   }
 
-  // matrice z
-  double zx = 0.3*(xd - x1);
-  double zy = 0.3*(yd - y1);
-
-  // consignes
-  double v   = zx * cos(th) + zy * sin(th);
-  double w   = -zx * sin(th) / l + zy * cos(th) / l;
-
   // maneuvre d'evitement
   if (collision_mode == 1)
   {
@@ -131,12 +132,12 @@ void PrintingTask::doTask(void)
   myRobot->setVel(v * 1000);
   myRobot->unlock();
 
-  // debug
-  /* printf("x:%f y:%f th:%f coli:%d v:%f w:%f stop:%d i:%d zx:%f zy:%d\n", */
-  /*        myRobot->getX(), myRobot->getY(), */
-  /*        myRobot->getTh(), collision_mode, */
-  /*        v, w, collision_iter_stop, i, zx, zy); */
-
+#ifdef DEBUG
+  printf("x:%f y:%f th:%f coli:%d v:%f w:%f stop:%d i:%d zx:%f zy:%d\n",
+         myRobot->getX(), myRobot->getY(),
+         myRobot->getTh(), collision_mode,
+         v, w, collision_iter_stop, i, zx, zy);
+#endif
 }
 
 int main(int argc, char** argv)
